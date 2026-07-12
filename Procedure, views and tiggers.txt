@@ -1,0 +1,271 @@
+PROCEDURE in customer file 
+1-reserve_table
+
+PROCEDURE reserve_table(
+    p_customer_id NUMBER,
+    p_table_id NUMBER,
+    p_reservation_date DATE,
+    p_time_slot VARCHAR2
+) AS
+   v_reservation_id NUMBER;
+   v_count NUMBER;
+
+BEGIN
+    -- Check table availability
+   SELECT COUNT(*) INTO v_count
+    FROM TABLE_INFO_P
+    WHERE TABLEID = p_table_id
+    AND BOOKING_STAT = 'Available';
+
+    IF v_count = 0 THEN
+       RAISE_APPLICATION_ERROR(-20001, 'Table is not available');
+END IF;
+
+    -- Create a new reservation
+    INSERT INTO RESERVATION_P (CUSTOMERID, TABLEID, RESERVATIONDATE, TIMESLOT)
+    VALUES (p_customer_id, p_table_id, p_reservation_date, p_time_slot)
+    RETURNING RESERVATIONID INTO v_reservation_id;
+
+    -- Update table status
+    UPDATE TABLE_INFO_P
+    SET BOOKING_STAT = 'Reserved'
+    WHERE TABLEID = p_table_id;
+
+    -- Link table to reservation
+    INSERT INTO TABLE_RESERVATION_P (TABLEID, RESERVATIONID, RESERVATIONSTATUS)
+    VALUES (p_table_id, v_reservation_id, 'Confirmed');
+END;
+
+2-take_feedback
+PROCEDURE take_feedback(
+    p_customer_id NUMBER,
+    p_table_id NUMBER,
+    p_reservation_id NUMBER,
+    p_reservation_date DATE,
+    p_feedback_details VARCHAR2,
+    p_rating NUMBER
+) AS
+
+BEGIN
+    INSERT INTO FEEDBACK_P (CUSTOMERID, TABLEID, RESERVATIONID, RESERVATIONDATE, FEEDBACK_DETAILS, RATING)
+    VALUES (p_customer_id, p_table_id, p_reservation_id, p_reservation_date, p_feedback_details, p_rating);
+END;
+
+PROCEDURE in supplier file 
+CREATE OR REPLACE PROCEDURE create_supplier(
+    p_companyname IN VARCHAR2,
+    p_name IN VARCHAR2,
+    p_email IN VARCHAR2,
+    p_password IN VARCHAR2,
+    p_address IN VARCHAR2,
+    p_contactdetails IN VARCHAR2
+) AS
+BEGIN
+    INSERT INTO SYSTEM.SUPPLIER_P (
+        companyname, name, email, password, address, contactdetails
+    ) VALUES (
+        p_companyname, p_name, p_email, p_password, p_address, p_contactdetails
+    );
+END;
+
+PROCEDURE in admin file (User authentication)
+PROCEDURE CustomerLogin (
+  p_email IN VARCHAR2,
+  p_password IN VARCHAR2,
+  p_status OUT VARCHAR2
+) AS
+  v_count NUMBER := 0;
+BEGIN
+  SELECT COUNT(*) INTO v_count
+  FROM CUSTOMER_P
+  WHERE email = p_email AND password = p_password;
+
+  IF v_count = 1 THEN
+    p_status := 'Login successful';
+  ELSE
+    p_status := 'Invalid email or password';
+  END IF;
+EXCEPTION
+  WHEN OTHERS THEN
+    p_status := 'Error occurred: ' || SQLERRM;
+END CustomerLogin;
+
+PROCEDURE in admin file (Data validation)
+DECLARE
+  v_adminid NUMBER;
+  v_success NUMBER;
+BEGIN
+  AUTHENTICATE_ADMIN('admin_username', 'admin_password', v_adminid, v_success);
+  IF v_success = 1 THEN
+    DBMS_OUTPUT.PUT_LINE('Authentication successful. Admin ID: ' || v_adminid);
+  ELSE
+    DBMS_OUTPUT.PUT_LINE('Authentication failed.');
+  END IF;
+END;
+
+PROCEDURE in admin file (Update Table)
+PROCEDURE admin_update_table_info(
+    p_table_id IN NUMBER,
+    p_capacity IN NUMBER,
+    p_booking_stat IN VARCHAR2,
+    p_location IN VARCHAR2
+)
+AS
+BEGIN
+    UPDATE TABLE_INFO_P
+    SET 
+        CAPACITY = p_capacity,
+        BOOKING_STAT = p_booking_stat,
+        LOCATION = p_location
+    WHERE TABLEID = p_table_id;
+
+    COMMIT;
+    DBMS_OUTPUT.PUT_LINE('Table information updated successfully.');
+EXCEPTION
+    WHEN OTHERS THEN
+        ROLLBACK;
+        DBMS_OUTPUT.PUT_LINE('Error updating table info: ' || SQLERRM);
+END admin_update_table_info;
+
+Trigger for supplier:
+CREATE OR REPLACE TRIGGER audit_supplier_changes
+AFTER UPDATE ON SYSTEM.SUPPLIER_P
+FOR EACH ROW
+BEGIN
+    INSERT INTO SYSTEM.SUPPLIER_AUDIT (
+        supplierid, changed_column, old_value, new_value
+    ) VALUES (
+        :old.supplierid,
+        'companyname',
+        :old.companyname,
+        :new.companyname
+    );
+END;
+
+
+Tigger in staff for order status:
+CREATE OR REPLACE TRIGGER log_order_status_changes
+AFTER UPDATE OF STATUS ON ORDERS
+FOR EACH ROW
+BEGIN
+    INSERT INTO ORDER_STATUS_LOG (ORDERID, OLD_STATUS, NEW_STATUS, CHANGE_DATE)
+    VALUES (:old.ORDERID, :old.STATUS, :new.STATUS, SYSTIMESTAMP);
+END;
+
+Tigger in admin for UPDATE_CUSTOMER_LOG:
+create or replace NONEDITIONABLE TRIGGER UPDATE_CUSTOMER_LOG
+AFTER UPDATE ON CUSTOMER_P
+FOR EACH ROW
+BEGIN
+    INSERT INTO AUDIT_LOG (table_name, action, record_id, change_date, user_id)
+    VALUES ('CUSTOMER_P', 'UPDATE', :NEW.CUSTOMERID, SYSTIMESTAMP, USER);
+END;
+
+
+Tigger in admin for INS_CUSTOMER_LOG:
+
+create or replace NONEDITIONABLE TRIGGER INS_CUSTOMER_LOG
+AFTER INSERT ON CUSTOMER_P
+FOR EACH ROW
+BEGIN
+    INSERT INTO AUDIT_LOG (table_name, action, record_id, change_date, user_id)
+    VALUES ('CUSTOMER_P', 'INSERT', :NEW.CUSTOMERID, SYSTIMESTAMP, USER);
+END;
+
+Tigger in admin for DEL_CUSTOMER_LOG:
+create or replace NONEDITIONABLE TRIGGER DEL_CUSTOMER_LOG
+AFTER DELETE ON CUSTOMER_P
+FOR EACH ROW
+BEGIN
+    INSERT INTO AUDIT_LOG (table_name, action, record_id, change_date, user_id)
+    VALUES ('CUSTOMER_P', 'DELETE', :OLD.CUSTOMERID, SYSTIMESTAMP, USER);
+END;
+
+
+
+VIEW in staff 
+CREATE OR REPLACE VIEW ORDER_DETAILS_VIEW AS
+SELECT 
+    o.ORDERID,
+    o.CUSTOMERID,
+    d.DISH_NAME,
+    d.DESCRIPTION,
+    o.STATUS
+FROM 
+    ORDERS o
+JOIN 
+    DISHES d ON o.DISHID = d.DISHID;
+
+
+VIEW for supplier:
+CREATE OR REPLACE VIEW supplier_orders AS
+SELECT 
+    so.orderid,
+    so.supplierid,
+    so.orderdate,
+    so.status,
+    so.details
+FROM 
+    SYSTEM.SUPPLIER_ORDERS so
+JOIN 
+    SYSTEM.SUPPLIER_P sp ON so.supplierid = sp.supplierid;
+
+
+VIEW for admin (Sales report view):
+ SELECT 
+  TO_CHAR(o.orderdate, 'YYYY-MM-DD') AS order_date, 
+  COUNT(*) AS total_orders,
+  SUM(o.totalamount) AS total_sales
+FROM 
+  order_p o
+GROUP BY 
+  TO_CHAR(o.orderdate, 'YYYY-MM-DD')
+ORDER BY 
+  order_date;
+
+
+VIEW for admin (Inventory status view):
+SELECT 
+  i.itemname, 
+  i.quantity, 
+  s.name AS supplier, 
+  CASE 
+    WHEN i.quantity < 10 THEN 'Low' 
+    WHEN i.quantity < 30 THEN 'Medium' 
+    ELSE 'High' 
+  END AS stock_level
+FROM 
+  inventory_p i
+JOIN 
+  supplier_p s ON i.supplierid = s.supplierid
+ORDER BY 
+  stock_level, 
+  i.itemname;
+
+
+VIEW for admin (Customer orders view):
+SELECT 
+  c.name, 
+  COUNT(o.orderid) AS order_count, 
+  SUM(o.totalamount) AS total_spent
+FROM 
+  customer_p c
+JOIN 
+  order_p o ON c.customerid = o.customerid
+GROUP BY 
+  c.name
+ORDER BY 
+  total_spent DESC;
+
+VIEW for admin (Supplier analysis view):
+SELECT 
+  supplierid,
+  name,
+  contactdetails,
+  companyname,
+  address,
+  registrationdate,
+  password,
+  email
+FROM 
+  supplier_p;
