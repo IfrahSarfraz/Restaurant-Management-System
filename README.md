@@ -15,7 +15,7 @@ A desktop-based Restaurant Management System built with **Python (Tkinter)** for
 
 The diagram below models the core entities of the system — Customers, Orders, Reservations, Billing, Staff (Waiter/Kitchen/Management), Inventory, Suppliers, Feedback, Financial Reports, and the Accounting Team/Sales Tax relationship.
 
-![Restaurant Management System - Enhanced ER Diagram](<img width="1851" height="1061" alt="Image" src="https://github.com/user-attachments/assets/3602db43-5e97-4ed4-a577-76a854c181f2" />)
+![Restaurant Management System - Enhanced ER Diagram]<img width="1851" height="1061" alt="Image" src="https://github.com/user-attachments/assets/3602db43-5e97-4ed4-a577-76a854c181f2" />
 
 ## Tech Stack
 
